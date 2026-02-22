@@ -1,0 +1,32 @@
+name: Push to Hugging Face Space
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Push main to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN secret is missing" >&2
+            exit 1
+          fi
+          if [ -z "$HF_SPACE_ID" ]; then
+            echo "HF_SPACE_ID variable is missing. Expected format: username/space-name" >&2
+            exit 1
+          fi
+
+          git config user.email "actions@github.com"
+          git config user.name "github-actions"
+
+          git remote add hf "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_ID}"
+          git push hf main:main
