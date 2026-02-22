@@ -5,15 +5,21 @@ import os
 
 DEFAULT_FALLBACK = (
     "I couldn't use an external LLM provider, so this response is generated from retrieved notes only. "
-    "Set OPENAI_API_KEY to enable stronger generation."
+    "Set GROQ_API_KEY or OPENAI_API_KEY to enable stronger generation."
 )
 
 
-def _openai_generate(prompt: str, system_prompt: str) -> str:
+def _chat_completion(
+    prompt: str,
+    system_prompt: str,
+    *,
+    api_key: str,
+    model: str,
+    base_url: str | None = None,
+) -> str:
     from openai import OpenAI
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    client = OpenAI(api_key=api_key, base_url=base_url)
     completion = client.chat.completions.create(
         model=model,
         messages=[
@@ -27,10 +33,30 @@ def _openai_generate(prompt: str, system_prompt: str) -> str:
 
 
 def generate_text(prompt: str, system_prompt: str, fallback_text: str = "") -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if groq_api_key:
         try:
-            response = _openai_generate(prompt, system_prompt)
+            response = _chat_completion(
+                prompt,
+                system_prompt,
+                api_key=groq_api_key,
+                model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+                base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+            )
+            if response:
+                return response
+        except Exception:
+            pass
+
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_key:
+        try:
+            response = _chat_completion(
+                prompt,
+                system_prompt,
+                api_key=openai_api_key,
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            )
             if response:
                 return response
         except Exception:
