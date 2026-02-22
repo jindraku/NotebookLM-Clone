@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +13,11 @@ try:
     from gtts import gTTS
 except Exception:  # pragma: no cover
     gTTS = None
+
+try:
+    from pydub import AudioSegment
+except Exception:  # pragma: no cover
+    AudioSegment = None
 
 
 REPORT_SYSTEM_PROMPT = "You produce well-structured study reports grounded in source material."
@@ -61,6 +69,113 @@ def _fallback_podcast(material: str) -> str:
     )
 
 
+def _parse_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
+    turns: list[tuple[str, str]] = []
+    for raw_line in transcript.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Accept markdown speaker labels like: **Host A:** text
+        line = re.sub(r"^\*+", "", line)
+        line = re.sub(r"\*+$", "", line)
+        line = line.strip()
+
+        match = re.match(r"^(Host A|Host B)\s*:\s*(.+)$", line, flags=re.IGNORECASE)
+        if match:
+            speaker = match.group(1).title()
+            text = match.group(2).strip()
+            if text:
+                turns.append((speaker, text))
+
+    if turns:
+        return turns
+
+    # Fallback: strip markdown and alternate speakers by sentence.
+    clean = re.sub(r"[*#`_]", " ", transcript)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean) if s.strip()]
+    speaker = "Host A"
+    for sentence in sentences[:80]:
+        turns.append((speaker, sentence))
+        speaker = "Host B" if speaker == "Host A" else "Host A"
+    return turns
+
+
+def _openai_tts_mp3_bytes(text: str, voice: str) -> bytes | None:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url=os.getenv("OPENAI_BASE_URL"))
+        response = client.audio.speech.create(
+            model=os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts"),
+            voice=voice,
+            input=text,
+            format="mp3",
+        )
+
+        if hasattr(response, "read"):
+            return response.read()
+        if hasattr(response, "content"):
+            return response.content
+        if isinstance(response, bytes):
+            return response
+    except Exception:
+        return None
+
+    return None
+
+
+def _synthesize_dialogue_mp3(turns: list[tuple[str, str]], output_path: Path) -> bool:
+    if not turns or AudioSegment is None:
+        return False
+
+    # Distinct voices to separate hosts.
+    # OpenAI voices are preferred when OPENAI_API_KEY is available; gTTS is fallback.
+    openai_voice_profile = {
+        "Host A": os.getenv("OPENAI_TTS_VOICE_A", "alloy"),
+        "Host B": os.getenv("OPENAI_TTS_VOICE_B", "nova"),
+    }
+    voice_profile = {
+        "Host A": {"lang": "en", "tld": "com"},
+        "Host B": {"lang": "en", "tld": "co.uk"},
+    }
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="podcast_tts_") as tmp:
+            merged = AudioSegment.silent(duration=250)
+            for idx, (speaker, text) in enumerate(turns, start=1):
+                segment_path = Path(tmp) / f"seg_{idx:04d}.mp3"
+                clipped_text = text[:900]
+
+                # First choice: higher-quality OpenAI TTS.
+                openai_voice = openai_voice_profile.get(speaker, openai_voice_profile["Host A"])
+                segment_bytes = _openai_tts_mp3_bytes(clipped_text, openai_voice)
+                if segment_bytes:
+                    segment_path.write_bytes(segment_bytes)
+                else:
+                    if gTTS is None:
+                        return False
+                    settings = voice_profile.get(speaker, voice_profile["Host A"])
+                    tts = gTTS(text=clipped_text, lang=settings["lang"], tld=settings["tld"])
+                    tts.save(str(segment_path))
+
+                segment_audio = AudioSegment.from_file(segment_path, format="mp3")
+                if speaker == "Host B":
+                    segment_audio = segment_audio + 1
+                else:
+                    segment_audio = segment_audio - 1
+                merged += segment_audio + AudioSegment.silent(duration=220)
+
+            merged.export(output_path, format="mp3", bitrate="96k")
+        return True
+    except Exception:
+        return False
+
+
 def generate_report(store: NotebookStore, username: str, notebook_id: str, extra_prompt: str = "") -> Path:
     material = _load_material(store, username, notebook_id)
     prompt = (
@@ -91,7 +206,9 @@ def generate_podcast(store: NotebookStore, username: str, notebook_id: str, extr
     material = _load_material(store, username, notebook_id)
     prompt = (
         "Create a markdown podcast transcript as a dialogue between Host A and Host B. "
-        "Length target: 4-6 minutes spoken.\n\n"
+        "Length target: 4-6 minutes spoken. "
+        "Keep it conversational and natural, with occasional short interjections and follow-up questions. "
+        "Use one line per turn in this exact format: **Host A:** ... or **Host B:** ...\n\n"
         f"Additional user instruction: {extra_prompt or 'None'}\n\n"
         "Source material:\n"
         f"{material}"
@@ -102,9 +219,15 @@ def generate_podcast(store: NotebookStore, username: str, notebook_id: str, extr
     audio_path = None
     if gTTS is not None:
         try:
-            tts = gTTS(text=transcript[:5000])
             temp_mp3 = Path(transcript_path).with_suffix(".mp3")
-            tts.save(str(temp_mp3))
+            turns = _parse_dialogue_turns(transcript)
+
+            built_dialogue = _synthesize_dialogue_mp3(turns, temp_mp3)
+            if not built_dialogue:
+                # Fallback to one-voice narration if multi-speaker synthesis is unavailable.
+                tts = gTTS(text=transcript[:5000], lang="en", tld="com")
+                tts.save(str(temp_mp3))
+
             audio_path = store.save_artifact_bytes(
                 username,
                 notebook_id,

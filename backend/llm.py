@@ -4,8 +4,8 @@ import os
 
 
 DEFAULT_FALLBACK = (
-    "I couldn't use an external LLM provider, so this response is generated from retrieved notes only. "
-    "Set GROQ_API_KEY or OPENAI_API_KEY to enable stronger generation."
+    "Note: running in fallback mode from retrieved notes only. "
+    "Add GROQ_API_KEY or OPENAI_API_KEY for full model responses."
 )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from typing import Any
 
@@ -26,8 +27,19 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
 def _fallback_answer(question: str, chunks: list[RetrievedChunk]) -> str:
     if not chunks:
         return "I couldn't find relevant notebook content yet. Add sources first, then ask again."
-    quote = chunks[0].text[:700]
-    return f"Best available context for your question '{question}':\n\n{quote}"
+
+    # PDF extraction can insert hard line breaks between every word; normalize for readability.
+    normalized = re.sub(r"\s+", " ", chunks[0].text).strip()
+    preview = normalized[:700]
+    if len(normalized) > 700:
+        preview += "..."
+
+    source = chunks[0].source_name
+    return (
+        f"Answer (from your uploaded source):\n\n"
+        f"{preview}\n\n"
+        f"Source: {source}"
+    )
 
 
 def _citations(chunks: list[RetrievedChunk]) -> list[dict[str, Any]]:
