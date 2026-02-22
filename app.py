@@ -78,17 +78,15 @@ def load_chat(notebook_id: str | None, request: gr.Request | None):
     if not notebook_id:
         return []
     rows = store.load_messages(username, notebook_id)
-    pairs: list[list[str]] = []
-    pending_user = ""
+    messages: list[dict[str, str]] = []
     for row in rows:
         role = row.get("role", "")
         content = row.get("content", "")
         if role == "user":
-            pending_user = content
+            messages.append({"role": "user", "content": content})
         elif role == "assistant":
-            pairs.append([pending_user, content])
-            pending_user = ""
-    return pairs
+            messages.append({"role": "assistant", "content": content})
+    return messages
 
 
 def ingest_files_callback(notebook_id: str, files: list[Any] | None, request: gr.Request | None):
@@ -116,7 +114,7 @@ def ingest_url_callback(notebook_id: str, url: str, request: gr.Request | None):
     return f"{result.source_name}: {result.status} ({result.num_chunks} chunks) {result.detail}"
 
 
-def chat_callback(notebook_id: str, message: str, history: list[list[str]] | None, request: gr.Request | None):
+def chat_callback(notebook_id: str, message: str, history: list[Any] | None, request: gr.Request | None):
     username = current_username(request)
     history = history or []
     if not notebook_id:
@@ -125,7 +123,10 @@ def chat_callback(notebook_id: str, message: str, history: list[list[str]] | Non
         return history, "", ""
 
     result = chat_with_notebook(store, username, notebook_id, message.strip())
-    new_history = history + [[message.strip(), result["answer"]]]
+    new_history = history + [
+        {"role": "user", "content": message.strip()},
+        {"role": "assistant", "content": result["answer"]},
+    ]
 
     citations = result.get("citations", [])
     if citations:
