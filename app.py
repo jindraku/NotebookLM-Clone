@@ -15,6 +15,7 @@ from storage.notebook_store import NotebookStore
 DATA_ROOT = os.getenv("DATA_ROOT", "data")
 store = NotebookStore(DATA_ROOT)
 RUNNING_ON_SPACE = bool(os.getenv("SPACE_ID"))
+OAUTH_ENABLED = bool(os.getenv("OAUTH_CLIENT_ID"))
 
 
 def current_username(request: gr.Request | None) -> str:
@@ -205,7 +206,7 @@ def select_artifact(path: str):
 with gr.Blocks(title="NotebookLM Clone") as demo:
     gr.Markdown("# NotebookLM Clone\nPer-user notebooks, RAG chat with citations, and artifact generation.")
 
-    if RUNNING_ON_SPACE and hasattr(gr, "LoginButton"):
+    if RUNNING_ON_SPACE and OAUTH_ENABLED and hasattr(gr, "LoginButton"):
         gr.LoginButton(value="Sign in with Hugging Face")
 
     notebook_status = gr.Markdown("")
