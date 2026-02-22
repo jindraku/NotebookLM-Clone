@@ -14,6 +14,7 @@ from storage.notebook_store import NotebookStore
 
 DATA_ROOT = os.getenv("DATA_ROOT", "data")
 store = NotebookStore(DATA_ROOT)
+RUNNING_ON_SPACE = bool(os.getenv("SPACE_ID"))
 
 
 def current_username(request: gr.Request | None) -> str:
@@ -77,8 +78,17 @@ def load_chat(notebook_id: str | None, request: gr.Request | None):
     if not notebook_id:
         return []
     rows = store.load_messages(username, notebook_id)
-    messages = [{"role": r.get("role", "assistant"), "content": r.get("content", "")} for r in rows]
-    return messages
+    pairs: list[list[str]] = []
+    pending_user = ""
+    for row in rows:
+        role = row.get("role", "")
+        content = row.get("content", "")
+        if role == "user":
+            pending_user = content
+        elif role == "assistant":
+            pairs.append([pending_user, content])
+            pending_user = ""
+    return pairs
 
 
 def ingest_files_callback(notebook_id: str, files: list[Any] | None, request: gr.Request | None):
@@ -106,18 +116,16 @@ def ingest_url_callback(notebook_id: str, url: str, request: gr.Request | None):
     return f"{result.source_name}: {result.status} ({result.num_chunks} chunks) {result.detail}"
 
 
-def chat_callback(notebook_id: str, message: str, history: list[dict[str, str]], request: gr.Request | None):
+def chat_callback(notebook_id: str, message: str, history: list[list[str]] | None, request: gr.Request | None):
     username = current_username(request)
+    history = history or []
     if not notebook_id:
         return history, "Select a notebook first.", ""
     if not message.strip():
         return history, "", ""
 
     result = chat_with_notebook(store, username, notebook_id, message.strip())
-    new_history = history + [
-        {"role": "user", "content": message.strip()},
-        {"role": "assistant", "content": result["answer"]},
-    ]
+    new_history = history + [[message.strip(), result["answer"]]]
 
     citations = result.get("citations", [])
     if citations:
@@ -196,7 +204,7 @@ def select_artifact(path: str):
 with gr.Blocks(title="NotebookLM Clone") as demo:
     gr.Markdown("# NotebookLM Clone\nPer-user notebooks, RAG chat with citations, and artifact generation.")
 
-    if hasattr(gr, "LoginButton"):
+    if RUNNING_ON_SPACE and hasattr(gr, "LoginButton"):
         gr.LoginButton(value="Sign in with Hugging Face")
 
     notebook_status = gr.Markdown("")
@@ -236,7 +244,7 @@ with gr.Blocks(title="NotebookLM Clone") as demo:
 
         with gr.Column(scale=2):
             gr.Markdown("## Chat")
-            chatbot = gr.Chatbot(type="messages", height=520)
+            chatbot = gr.Chatbot(height=520)
             with gr.Row():
                 chat_input = gr.Textbox(placeholder="Ask questions about your sources...", scale=5)
                 send_btn = gr.Button("Send", scale=1)
