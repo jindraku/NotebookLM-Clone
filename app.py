@@ -354,7 +354,7 @@ def select_artifact(path: str, notebook_id: str | None, request: gr.Request | No
     return md_file, audio_file, preview
 
 
-with gr.Blocks(title="NotebookLM Clone", css=APP_CSS, fill_height=True, elem_id="app-shell") as demo:
+with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") as demo:
     with gr.Row(equal_height=False):
         with gr.Column(scale=1, min_width=340):
             gr.Markdown("# NotebookLM Clone", elem_classes=["app-title"])
@@ -613,4 +613,4 @@ with gr.Blocks(title="NotebookLM Clone", css=APP_CSS, fill_height=True, elem_id=
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(css=APP_CSS, ssr_mode=False)
