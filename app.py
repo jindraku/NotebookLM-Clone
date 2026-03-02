@@ -334,10 +334,12 @@ def generate_podcast_callback(notebook_id: str, prompt: str, request: gr.Request
     result = generate_podcast(store, username, notebook_id, prompt)
     transcript = result.get("transcript_path")
     audio = result.get("audio_path")
+    audio_error = result.get("audio_error", "")
     if transcript and audio:
         return f"Podcast generated: `{Path(transcript).name}` + `{Path(audio).name}`"
     if transcript:
-        return f"Podcast transcript generated: `{Path(transcript).name}` (audio unavailable)"
+        detail = f" Reason: {audio_error}" if audio_error else ""
+        return f"Podcast transcript generated: `{Path(transcript).name}` (audio unavailable).{detail}"
     return "Podcast generation failed."
 
 

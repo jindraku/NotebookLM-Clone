@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict
 from typing import Any
@@ -13,6 +14,7 @@ SYSTEM_PROMPT = (
     "You are an academic research assistant. Answer only with support from retrieved context. "
     "If context is insufficient, say what is missing. Keep answers concise and factual."
 )
+MAX_DISTANCE = float(os.getenv("RAG_MAX_DISTANCE", "0.7"))
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
@@ -69,7 +71,8 @@ def chat_with_notebook(
     top_k: int = 4,
 ) -> dict[str, Any]:
     paths = store.notebook_paths(username, notebook_id)
-    retrieved = retrieve(paths.chroma, user_message, top_k=top_k)
+    retrieved_all = retrieve(paths.chroma, user_message, top_k=top_k)
+    retrieved = [chunk for chunk in retrieved_all if chunk.score <= MAX_DISTANCE]
 
     context = _format_context(retrieved)
     prompt = (

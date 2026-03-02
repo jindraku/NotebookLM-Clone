@@ -87,15 +87,15 @@ def _parse_dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     return turns
 
 
-def _elevenlabs_dialogue_mp3_bytes(turns: list[tuple[str, str]]) -> bytes | None:
+def _elevenlabs_dialogue_mp3_bytes(turns: list[tuple[str, str]]) -> tuple[bytes | None, str]:
     if not turns:
-        return None
+        return None, "No dialogue turns were parsed from the transcript."
 
     api_key = os.getenv("ELEVENLABS_API_KEY")
     voice_a = os.getenv("ELEVENLABS_VOICE_ID_A")
     voice_b = os.getenv("ELEVENLABS_VOICE_ID_B")
     if not api_key or not voice_a or not voice_b:
-        return None
+        return None, "Missing ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID_A / ELEVENLABS_VOICE_ID_B."
 
     base_url = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io")
     output_format = os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
@@ -121,13 +121,16 @@ def _elevenlabs_dialogue_mp3_bytes(turns: list[tuple[str, str]]) -> bytes | None
             },
             timeout=180,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = response.text[:300] if response.text else "No error details returned."
+            return None, f"ElevenLabs request failed ({response.status_code}): {detail}"
         if response.content:
-            return response.content
-    except Exception:
-        return None
+            return response.content, ""
+        return None, "ElevenLabs returned an empty audio payload."
+    except Exception as exc:
+        return None, f"ElevenLabs request exception: {exc}"
 
-    return None
+    return None, "Unknown ElevenLabs audio generation error."
 
 
 def generate_report(store: NotebookStore, username: str, notebook_id: str, extra_prompt: str = "") -> Path:
@@ -171,8 +174,9 @@ def generate_podcast(store: NotebookStore, username: str, notebook_id: str, extr
     transcript_path = store.save_artifact_text(username, notebook_id, "podcast", ".md", transcript)
 
     audio_path = None
+    audio_error = ""
     turns = _parse_dialogue_turns(transcript)
-    audio_bytes = _elevenlabs_dialogue_mp3_bytes(turns)
+    audio_bytes, audio_error = _elevenlabs_dialogue_mp3_bytes(turns)
     if audio_bytes:
         try:
             audio_path = store.save_artifact_bytes(
@@ -182,12 +186,14 @@ def generate_podcast(store: NotebookStore, username: str, notebook_id: str, extr
                 ".mp3",
                 audio_bytes,
             )
-        except Exception:
+        except Exception as exc:
             audio_path = None
+            audio_error = f"Failed to save audio artifact: {exc}"
 
     return {
         "transcript_path": str(transcript_path),
         "audio_path": str(audio_path) if audio_path else "",
+        "audio_error": audio_error,
     }
 
 
