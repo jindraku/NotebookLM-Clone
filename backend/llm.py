@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import os
+import re
 
 
 DEFAULT_FALLBACK = (
     "Note: running in fallback mode from retrieved notes only. "
     "Add GROQ_API_KEY or OPENAI_API_KEY for full model responses."
 )
+
+
+def _clean_model_text(text: str) -> str:
+    # Remove leaked internal/special tokens from some model providers.
+    cleaned = re.sub(r"<\|[^|>]*\|>", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 
 def _chat_completion(
@@ -29,7 +37,7 @@ def _chat_completion(
         temperature=0.2,
     )
     text = completion.choices[0].message.content
-    return text.strip() if text else ""
+    return _clean_model_text(text) if text else ""
 
 
 def generate_text(prompt: str, system_prompt: str, fallback_text: str = "") -> str:

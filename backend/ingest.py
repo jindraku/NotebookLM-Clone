@@ -13,6 +13,11 @@ from bs4 import BeautifulSoup
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from pypdf import PdfReader
 
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover
+    pd = None
+
 from storage.notebook_store import NotebookStore
 
 try:
@@ -66,13 +71,33 @@ def _extract_text_from_txt(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _extract_text_from_xlsx(path: Path) -> str:
+    if pd is None:
+        raise RuntimeError("pandas/openpyxl not available for .xlsx ingestion")
+
+    workbook = pd.read_excel(path, sheet_name=None)
+    parts: list[str] = []
+    for sheet_name, frame in workbook.items():
+        parts.append(f"## Sheet: {sheet_name}")
+        frame = frame.fillna("")
+        for row in frame.values.tolist():
+            row_text = " | ".join([str(cell).strip() for cell in row if str(cell).strip()])
+            if row_text:
+                parts.append(row_text)
+    return "\n".join(parts)
+
+
 def extract_text_from_file(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return _extract_text_from_pdf(path)
     if suffix == ".pptx":
         return _extract_text_from_pptx(path)
-    return _extract_text_from_txt(path)
+    if suffix in {".txt", ".md", ".csv"}:
+        return _extract_text_from_txt(path)
+    if suffix == ".xlsx":
+        return _extract_text_from_xlsx(path)
+    raise ValueError(f"Unsupported file type: {suffix}. Use .pdf, .pptx, .txt, .csv, or .xlsx")
 
 
 def extract_text_from_url(url: str, timeout: int = 20) -> str:
