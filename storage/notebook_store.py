@@ -70,7 +70,7 @@ class NotebookStore:
         now = utc_now_iso()
         row = {
             "id": notebook_id,
-            "name": name.strip() or "Untitled Notebook",
+            "name": notebook_id,
             "created_at": now,
             "updated_at": now,
         }

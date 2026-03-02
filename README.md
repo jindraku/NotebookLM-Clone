@@ -73,10 +73,16 @@ Open the URL printed by Gradio.
 
 - `OPENAI_API_KEY` (optional): enables higher quality generation for chat/artifacts.
 - `OPENAI_MODEL` (optional): default is `gpt-4o-mini`.
+- `ELEVENLABS_API_KEY` (optional): enables podcast audio generation via ElevenLabs Text-to-Dialogue.
+- `ELEVENLABS_VOICE_ID_A` (required for podcast audio): Host A voice ID.
+- `ELEVENLABS_VOICE_ID_B` (required for podcast audio): Host B voice ID.
+- `ELEVENLABS_DIALOGUE_MODEL` (optional): default is `eleven_v3`.
+- `ELEVENLABS_OUTPUT_FORMAT` (optional): default is `mp3_44100_128`.
 - `DATA_ROOT` (optional): default is `data`.
 - `DEMO_USER` (optional): default local username when OAuth user is unavailable.
 
-If no `OPENAI_API_KEY` is set, the app still works with a fallback response mode.
+If no `OPENAI_API_KEY` is set, chat/artifact text generation still works in fallback mode.
+If ElevenLabs vars are not set, podcast transcript generation still works but MP3 audio is skipped.
 
 ## 4) Hugging Face Space Setup
 
