@@ -12,6 +12,7 @@ from storage.notebook_store import NotebookStore
 
 SYSTEM_PROMPT = (
     "You are an academic research assistant. Answer only with support from retrieved context. "
+    "Write naturally in your own words, not as copied source text. "
     "If context is insufficient, say what is missing. Keep answers concise and factual."
 )
 MAX_DISTANCE = float(os.getenv("RAG_MAX_DISTANCE", "0.7"))
@@ -38,9 +39,11 @@ def _fallback_answer(question: str, chunks: list[RetrievedChunk]) -> str:
 
     source = chunks[0].source_name
     return (
-        f"Answer (from your uploaded source):\n\n"
+        "### Quick Answer\n"
+        f"Based on your uploaded material, here is the most relevant part for: **{question}**\n\n"
+        "### Key Evidence\n"
         f"{preview}\n\n"
-        f"Source: {source}"
+        f"**Source:** {source}"
     )
 
 
@@ -82,8 +85,10 @@ def chat_with_notebook(
         f"{context}\n\n"
         "Instructions:\n"
         "1) Answer using only retrieved context.\n"
-        "2) If unsure, explicitly state uncertainty.\n"
-        "3) End with a short 'Sources used' line listing source names."
+        "2) Paraphrase and synthesize in natural language; do not copy long phrases from sources.\n"
+        "3) Use clean markdown with these sections: '### Quick Answer' and '### Key Points'.\n"
+        "4) If unsure, explicitly state uncertainty.\n"
+        "5) End with a short 'Sources used' line listing source names."
     )
     answer = generate_text(prompt, SYSTEM_PROMPT, fallback_text=_fallback_answer(user_message, retrieved))
 

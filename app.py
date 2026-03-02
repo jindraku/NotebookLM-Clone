@@ -400,6 +400,24 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
                     with gr.Row():
                         chat_input = gr.Textbox(placeholder="Ask questions about your sources...", scale=6)
                         send_btn = gr.Button("Send", scale=1, elem_classes=["primary-btn"])
+                    gr.Markdown(
+                        "**Try questions like:**\n"
+                        "- What are the top 3 takeaways from these sources?\n"
+                        "- Explain this topic like I'm new to it, with one real example.\n"
+                        "- Compare source A and source B on their main argument.\n"
+                        "- What evidence supports the claim about X?\n"
+                        "- What important details are missing from these notes?"
+                    )
+                    gr.Examples(
+                        examples=[
+                            "What are the top 3 takeaways from these sources?",
+                            "Explain this topic like I'm new to it, with one real example.",
+                            "Compare the main ideas across my uploaded sources.",
+                            "What evidence from the sources supports the key conclusion?",
+                            "Summarize this as a short study guide with action items.",
+                        ],
+                        inputs=[chat_input],
+                    )
                     citations = gr.Markdown("Citations appear here after each response.")
 
                 with gr.Tab("Artifacts"):
