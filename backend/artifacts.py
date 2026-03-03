@@ -15,11 +15,20 @@ QUIZ_SYSTEM_PROMPT = "You create quizzes with answer keys grounded in study mate
 PODCAST_SYSTEM_PROMPT = "You produce an educational podcast transcript between two speakers."
 
 
+def _normalize_source_text(text: str) -> str:
+    # Flatten broken line wraps from OCR/PDF/TXT so prompts get readable context.
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    # Re-introduce sentence breaks for readability.
+    cleaned = re.sub(r"([.!?])\s+", r"\1\n", cleaned)
+    return cleaned
+
+
 def _load_material(store: NotebookStore, username: str, notebook_id: str, max_chars: int = 20000) -> str:
     paths = store.notebook_paths(username, notebook_id)
     chunks: list[str] = []
     for path in sorted(paths.files_extracted.glob("*.txt")):
         text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _normalize_source_text(text)
         chunks.append(f"## Source: {path.name}\n{text}")
         if sum(len(c) for c in chunks) > max_chars:
             break

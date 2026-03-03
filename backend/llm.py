@@ -41,6 +41,8 @@ def _chat_completion(
 
 
 def generate_text(prompt: str, system_prompt: str, fallback_text: str = "") -> str:
+    provider_errors: list[str] = []
+
     groq_api_key = os.getenv("GROQ_API_KEY")
     if groq_api_key:
         try:
@@ -53,8 +55,8 @@ def generate_text(prompt: str, system_prompt: str, fallback_text: str = "") -> s
             )
             if response:
                 return response
-        except Exception:
-            pass
+        except Exception as exc:
+            provider_errors.append(f"GROQ error: {str(exc)[:220]}")
 
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if openai_api_key:
@@ -67,9 +69,13 @@ def generate_text(prompt: str, system_prompt: str, fallback_text: str = "") -> s
             )
             if response:
                 return response
-        except Exception:
-            pass
+        except Exception as exc:
+            provider_errors.append(f"OPENAI error: {str(exc)[:220]}")
+
+    error_hint = ""
+    if provider_errors:
+        error_hint = "\n\nProvider details: " + " | ".join(provider_errors)
 
     if fallback_text:
-        return f"{fallback_text}\n\n{DEFAULT_FALLBACK}"
-    return DEFAULT_FALLBACK
+        return f"{fallback_text}\n\n{DEFAULT_FALLBACK}{error_hint}"
+    return f"{DEFAULT_FALLBACK}{error_hint}"

@@ -198,8 +198,8 @@ def _artifact_summary(rows: list[dict[str, str]]) -> str:
 def refresh_artifact_panel(notebook_id: str | None, request: gr.Request | None):
     username = current_username(request)
     rows = _artifact_rows(username, notebook_id)
-    paths = [r["path"] for r in rows]
-    selected = paths[0] if paths else None
+    choices = [(f'{r["type"]}: {r["name"]}', r["path"]) for r in rows]
+    selected = choices[0][1] if choices else None
     report_files = _artifact_file_markdown(rows, "report")
     quiz_files = _artifact_file_markdown(rows, "quiz")
     podcast_files = _artifact_file_markdown(rows, "podcast")
@@ -209,8 +209,8 @@ def refresh_artifact_panel(notebook_id: str | None, request: gr.Request | None):
     audio_file = selected if selected and selected.lower().endswith(".mp3") else None
 
     return (
-        gr.update(choices=paths, value=selected),
-        _artifact_summary(rows),
+        gr.update(choices=choices, value=selected),
+        _artifact_summary(rows) if rows else "No artifacts yet for this notebook. Generate one first.",
         report_files,
         quiz_files,
         podcast_files,
