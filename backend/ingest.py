@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 import chromadb
 import requests
 from bs4 import BeautifulSoup
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from pypdf import PdfReader
 
 try:
@@ -38,7 +37,10 @@ class IngestResult:
     detail: str
 
 
-def _embedding_fn() -> SentenceTransformerEmbeddingFunction:
+def _embedding_fn():
+    # Lazy import to keep Space startup memory low.
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
     return SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
 
 

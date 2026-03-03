@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 COLLECTION_NAME = "sources"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -21,6 +20,9 @@ class RetrievedChunk:
 
 
 def _collection(chroma_dir: Path):
+    # Lazy import to avoid loading heavy embedding stack during app startup.
+    from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
     client = chromadb.PersistentClient(path=str(chroma_dir))
     emb = SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     return client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=emb)
