@@ -551,9 +551,6 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
         ],
     )
 
-    # Keep badge in sync after OAuth redirects/session changes.
-    demo.load(user_badge_text, inputs=None, outputs=[user_badge], every=3)
-
     create_btn.click(
         create_notebook,
         inputs=[new_notebook_name],
