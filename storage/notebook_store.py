@@ -52,15 +52,27 @@ class NotebookStore:
         index_path = self._index_path(username)
         if not index_path.exists():
             return []
-        with index_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with index_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            # Keep app usable if a prior partial write corrupted the index.
+            corrupted_path = index_path.with_suffix(".corrupt.json")
+            try:
+                shutil.copy2(index_path, corrupted_path)
+            except OSError:
+                pass
+            return []
         return data if isinstance(data, list) else []
 
     def _write_index(self, username: str, rows: list[dict[str, Any]]) -> None:
         notebooks_root = self._notebooks_root(username)
         notebooks_root.mkdir(parents=True, exist_ok=True)
-        with self._index_path(username).open("w", encoding="utf-8") as f:
+        index_path = self._index_path(username)
+        tmp_path = index_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
             json.dump(rows, f, indent=2)
+        tmp_path.replace(index_path)
 
     def list_notebooks(self, username: str) -> list[dict[str, Any]]:
         return sorted(self._read_index(username), key=lambda x: x.get("updated_at", ""), reverse=True)

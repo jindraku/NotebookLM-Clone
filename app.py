@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -157,7 +158,7 @@ def _extract_username_and_auth_state(request: gr.Request | None) -> tuple[str, b
                         return token, True
 
         headers = getattr(request, "headers", {}) or {}
-        if isinstance(headers, dict):
+        if isinstance(headers, Mapping) or hasattr(headers, "items"):
             lowered = {str(k).lower(): v for k, v in headers.items()}
             for key in [
                 "x-forwarded-user",
