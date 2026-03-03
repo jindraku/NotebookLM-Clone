@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import re
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,13 @@ DATA_ROOT = os.getenv("DATA_ROOT", "data")
 store = NotebookStore(DATA_ROOT)
 RUNNING_ON_SPACE = bool(os.getenv("SPACE_ID"))
 OAUTH_ENABLED = bool(os.getenv("OAUTH_CLIENT_ID"))
+
+if not (RUNNING_ON_SPACE and OAUTH_ENABLED):
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Empty session being created\. Install gradio\[oauth\] and add a gr\.LoginButton to your app to enable OAuth login\.",
+        category=UserWarning,
+    )
 
 APP_CSS = """
 :root {
@@ -134,7 +142,17 @@ def _identity_or_none(value: Any) -> str | None:
     return token if token else None
 
 
-def _extract_username_and_auth_state(request: gr.Request | None) -> tuple[str, bool]:
+def _extract_username_and_auth_state(
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+) -> tuple[str, bool]:
+    if oauth_profile is not None:
+        profile_username = _identity_or_none(oauth_profile.get("preferred_username")) or _identity_or_none(
+            oauth_profile.get("username")
+        )
+        if profile_username:
+            return profile_username, True
+
     if request is not None:
         username = getattr(request, "username", None)
         if username:
@@ -142,7 +160,10 @@ def _extract_username_and_auth_state(request: gr.Request | None) -> tuple[str, b
             if token:
                 return token, True
 
-        user_obj = getattr(request, "user", None)
+        try:
+            user_obj = getattr(request, "user", None)
+        except Exception:
+            user_obj = None
         if isinstance(user_obj, dict):
             for key in ["preferred_username", "username", "sub", "id", "email", "name"]:
                 if user_obj.get(key):
@@ -208,8 +229,8 @@ def current_username(request: gr.Request | None) -> str:
     return username
 
 
-def user_badge_text(request: gr.Request | None) -> str:
-    username, authenticated = _extract_username_and_auth_state(request)
+def user_badge_text(request: gr.Request | None, oauth_profile: gr.OAuthProfile | None = None) -> str:
+    username, authenticated = _extract_username_and_auth_state(request, oauth_profile)
     if authenticated:
         return f"Logged in as: **{username}**"
     if RUNNING_ON_SPACE:
@@ -240,8 +261,8 @@ def source_list_markdown(username: str, notebook_id: str | None) -> str:
     return "\n".join([f"- {name}" for name in files])
 
 
-def load_chat(notebook_id: str | None, request: gr.Request | None):
-    username = current_username(request)
+def load_chat(notebook_id: str | None, request: gr.Request | None, oauth_profile: gr.OAuthProfile | None = None):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return []
     rows = store.load_messages(username, notebook_id)
@@ -306,8 +327,12 @@ def _artifact_summary(rows: list[dict[str, str]]) -> str:
     return "\n".join([f"- {r['type']}: {r['name']}" for r in rows])
 
 
-def refresh_artifact_panel(notebook_id: str | None, request: gr.Request | None):
-    username = current_username(request)
+def refresh_artifact_panel(
+    notebook_id: str | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     rows = _artifact_rows(username, notebook_id)
     choices = [(f'{r["type"]}: {r["name"]}', r["path"]) for r in rows]
     selected = choices[0][1] if choices else None
@@ -333,9 +358,13 @@ def refresh_artifact_panel(notebook_id: str | None, request: gr.Request | None):
     )
 
 
-def refresh_artifact_panel_keep_status(notebook_id: str | None, request: gr.Request | None):
+def refresh_artifact_panel_keep_status(
+    notebook_id: str | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
     dropdown, _status, report_files, quiz_files, podcast_files, report_preview, quiz_preview, md_file, audio_file = (
-        refresh_artifact_panel(notebook_id, request)
+        refresh_artifact_panel(notebook_id, request, oauth_profile)
     )
     return (
         dropdown,
@@ -349,15 +378,15 @@ def refresh_artifact_panel_keep_status(notebook_id: str | None, request: gr.Requ
     )
 
 
-def refresh_notebooks(request: gr.Request | None):
-    username = current_username(request)
+def refresh_notebooks(request: gr.Request | None, oauth_profile: gr.OAuthProfile | None = None):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     choices, selected, summary = notebook_choices(username)
     source_md = source_list_markdown(username, selected)
-    return gr.update(choices=choices, value=selected), summary, source_md, user_badge_text(request)
+    return gr.update(choices=choices, value=selected), summary, source_md, user_badge_text(request, oauth_profile)
 
 
-def create_notebook(name: str, request: gr.Request | None):
-    username = current_username(request)
+def create_notebook(name: str, request: gr.Request | None, oauth_profile: gr.OAuthProfile | None = None):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     notebook = store.create_notebook(username, name)
     choices, selected, summary = notebook_choices(username)
     status = f"Created notebook `{notebook['id']}`."
@@ -365,8 +394,13 @@ def create_notebook(name: str, request: gr.Request | None):
     return gr.update(choices=choices, value=notebook["id"]), summary, status, source_md
 
 
-def rename_notebook(notebook_id: str, new_name: str, request: gr.Request | None):
-    username = current_username(request)
+def rename_notebook(
+    notebook_id: str,
+    new_name: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return gr.update(), "No notebook selected.", "No notebook selected."
     ok = store.rename_notebook(username, notebook_id, new_name)
@@ -376,20 +410,29 @@ def rename_notebook(notebook_id: str, new_name: str, request: gr.Request | None)
     )
 
 
-def delete_notebook(notebook_id: str, request: gr.Request | None):
-    username = current_username(request)
+def delete_notebook(
+    notebook_id: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return gr.update(), "No notebook selected.", "No notebook selected.", []
 
     ok = store.delete_notebook(username, notebook_id)
     choices, selected, summary = notebook_choices(username)
     status = "Deleted notebook." if ok else "Notebook not found."
-    chat_state = load_chat(selected, request) if selected else []
+    chat_state = load_chat(selected, request, oauth_profile) if selected else []
     return gr.update(choices=choices, value=selected), summary, status, chat_state
 
 
-def ingest_files_callback(notebook_id: str, files: list[Any] | None, request: gr.Request | None):
-    username = current_username(request)
+def ingest_files_callback(
+    notebook_id: str,
+    files: list[Any] | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return "Select a notebook first.", source_list_markdown(username, notebook_id)
     if not files:
@@ -400,8 +443,13 @@ def ingest_files_callback(notebook_id: str, files: list[Any] | None, request: gr
     return "\n".join(lines), source_list_markdown(username, notebook_id)
 
 
-def ingest_url_callback(notebook_id: str, url: str, request: gr.Request | None):
-    username = current_username(request)
+def ingest_url_callback(
+    notebook_id: str,
+    url: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return "Select a notebook first.", source_list_markdown(username, notebook_id)
     if not url.strip():
@@ -412,12 +460,23 @@ def ingest_url_callback(notebook_id: str, url: str, request: gr.Request | None):
     return status, source_list_markdown(username, notebook_id)
 
 
-def refresh_sources_for_selected(notebook_id: str | None, request: gr.Request | None) -> str:
-    return source_list_markdown(current_username(request), notebook_id)
+def refresh_sources_for_selected(
+    notebook_id: str | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+) -> str:
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
+    return source_list_markdown(username, notebook_id)
 
 
-def chat_callback(notebook_id: str, message: str, history: list[Any] | None, request: gr.Request | None):
-    username = current_username(request)
+def chat_callback(
+    notebook_id: str,
+    message: str,
+    history: list[Any] | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     history = history or []
     if not notebook_id:
         return history, "Select a notebook first.", ""
@@ -440,24 +499,39 @@ def chat_callback(notebook_id: str, message: str, history: list[Any] | None, req
     return new_history, "", citation_text
 
 
-def generate_report_callback(notebook_id: str, prompt: str, request: gr.Request | None):
-    username = current_username(request)
+def generate_report_callback(
+    notebook_id: str,
+    prompt: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return "Select a notebook first."
     path = generate_report(store, username, notebook_id, prompt)
     return f"Report generated: `{path.name}`"
 
 
-def generate_quiz_callback(notebook_id: str, prompt: str, request: gr.Request | None):
-    username = current_username(request)
+def generate_quiz_callback(
+    notebook_id: str,
+    prompt: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return "Select a notebook first."
     path = generate_quiz(store, username, notebook_id, prompt)
     return f"Quiz generated: `{path.name}`"
 
 
-def generate_podcast_callback(notebook_id: str, prompt: str, request: gr.Request | None):
-    username = current_username(request)
+def generate_podcast_callback(
+    notebook_id: str,
+    prompt: str,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     if not notebook_id:
         return "Select a notebook first."
     result = generate_podcast(store, username, notebook_id, prompt)
@@ -472,8 +546,13 @@ def generate_podcast_callback(notebook_id: str, prompt: str, request: gr.Request
     return "Podcast generation failed."
 
 
-def select_artifact(path: str, notebook_id: str | None, request: gr.Request | None):
-    username = current_username(request)
+def select_artifact(
+    path: str,
+    notebook_id: str | None,
+    request: gr.Request | None,
+    oauth_profile: gr.OAuthProfile | None = None,
+):
+    username = _extract_username_and_auth_state(request, oauth_profile)[0]
     md_file = path if path and path.lower().endswith(".md") else None
     audio_file = path if path and path.lower().endswith(".mp3") else None
     rows = _artifact_rows(username, notebook_id)
