@@ -9,9 +9,6 @@ python_version: 3.11
 app_file: app.py
 pinned: false
 hf_oauth: true
-hf_oauth_scopes:
-  - openid
-  - profile
 ---
 
 # NotebookLM Clone (Gradio + RAG)
