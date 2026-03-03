@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from typing import Any
 
@@ -123,10 +124,34 @@ def current_username(request: gr.Request | None) -> str:
         username = getattr(request, "username", None)
         if username:
             return str(username)
+
         headers = getattr(request, "headers", {}) or {}
-        user_header = headers.get("x-forwarded-user") if isinstance(headers, dict) else None
-        if user_header:
-            return str(user_header)
+        if isinstance(headers, dict):
+            lowered = {str(k).lower(): v for k, v in headers.items()}
+            for key in [
+                "x-forwarded-user",
+                "x-forwarded-preferred-username",
+                "x-hf-username",
+                "x-hf-user",
+                "x-user",
+                "x-auth-request-user",
+            ]:
+                value = lowered.get(key)
+                if value:
+                    return str(value)
+
+            # Some proxies may pass serialized auth context.
+            for key in ["x-auth-request", "x-userinfo", "x-hf-userinfo"]:
+                raw = lowered.get(key)
+                if not raw:
+                    continue
+                try:
+                    parsed = json.loads(str(raw))
+                    for name_key in ["preferred_username", "username", "name", "sub"]:
+                        if parsed.get(name_key):
+                            return str(parsed[name_key])
+                except Exception:
+                    continue
     return os.getenv("DEMO_USER", "local-user")
 
 
@@ -525,6 +550,9 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             artifact_audio,
         ],
     )
+
+    # Keep badge in sync after OAuth redirects/session changes.
+    demo.load(user_badge_text, inputs=None, outputs=[user_badge], every=3)
 
     create_btn.click(
         create_notebook,
