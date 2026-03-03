@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -119,11 +120,41 @@ APP_CSS = """
 """
 
 
-def current_username(request: gr.Request | None) -> str:
+def _clean_identity_token(value: Any) -> str:
+    text = str(value).strip()
+    if not text:
+        return ""
+    cleaned = re.sub(r"[^A-Za-z0-9._:@-]", "_", text)
+    return cleaned or ""
+
+
+def _identity_or_none(value: Any) -> str | None:
+    token = _clean_identity_token(value)
+    return token if token else None
+
+
+def _extract_username_and_auth_state(request: gr.Request | None) -> tuple[str, bool]:
     if request is not None:
         username = getattr(request, "username", None)
         if username:
-            return str(username)
+            token = _identity_or_none(username)
+            if token:
+                return token, True
+
+        user_obj = getattr(request, "user", None)
+        if isinstance(user_obj, dict):
+            for key in ["preferred_username", "username", "sub", "id", "email", "name"]:
+                if user_obj.get(key):
+                    token = _identity_or_none(user_obj[key])
+                    if token:
+                        return token, True
+        elif user_obj:
+            for key in ["preferred_username", "username", "sub", "id", "email", "name"]:
+                value = getattr(user_obj, key, None)
+                if value:
+                    token = _identity_or_none(value)
+                    if token:
+                        return token, True
 
         headers = getattr(request, "headers", {}) or {}
         if isinstance(headers, dict):
@@ -131,32 +162,58 @@ def current_username(request: gr.Request | None) -> str:
             for key in [
                 "x-forwarded-user",
                 "x-forwarded-preferred-username",
+                "x-auth-request-user",
                 "x-hf-username",
                 "x-hf-user",
+                "x-hf-sub",
+                "x-hf-user-id",
                 "x-user",
-                "x-auth-request-user",
             ]:
                 value = lowered.get(key)
                 if value:
-                    return str(value)
+                    token = _identity_or_none(value)
+                    if token:
+                        return token, True
 
-            # Some proxies may pass serialized auth context.
+            # Some proxies pass serialized auth context.
             for key in ["x-auth-request", "x-userinfo", "x-hf-userinfo"]:
                 raw = lowered.get(key)
                 if not raw:
                     continue
                 try:
                     parsed = json.loads(str(raw))
-                    for name_key in ["preferred_username", "username", "name", "sub"]:
+                    for name_key in ["preferred_username", "username", "sub", "user_id", "email", "name"]:
                         if parsed.get(name_key):
-                            return str(parsed[name_key])
+                            token = _identity_or_none(parsed[name_key])
+                            if token:
+                                return token, True
                 except Exception:
                     continue
-    return os.getenv("DEMO_USER", "local-user")
+
+        # Space fallback: isolate by per-session identity to prevent shared global data.
+        if RUNNING_ON_SPACE:
+            session_hash = getattr(request, "session_hash", None)
+            if session_hash:
+                token = _identity_or_none(session_hash)
+                if token:
+                    return f"session_{token}", False
+
+    fallback = _identity_or_none(os.getenv("DEMO_USER", "local-user")) or "local-user"
+    return fallback, False
+
+
+def current_username(request: gr.Request | None) -> str:
+    username, _ = _extract_username_and_auth_state(request)
+    return username
 
 
 def user_badge_text(request: gr.Request | None) -> str:
-    return f"Logged in as: **{current_username(request)}**"
+    username, authenticated = _extract_username_and_auth_state(request)
+    if authenticated:
+        return f"Logged in as: **{username}**"
+    if RUNNING_ON_SPACE:
+        return f"Using isolated guest session: **{username}**. Sign in to keep notebooks across sessions."
+    return f"Logged in as: **{username}**"
 
 
 def notebook_choices(username: str) -> tuple[list[str], str | None, str]:
