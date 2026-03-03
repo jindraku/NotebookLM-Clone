@@ -13,7 +13,10 @@ DEFAULT_FALLBACK = (
 def _clean_model_text(text: str) -> str:
     # Remove leaked internal/special tokens from some model providers.
     cleaned = re.sub(r"<\|[^|>]*\|>", " ", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\r\n?", "\n", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = cleaned.strip()
     return cleaned
 
 

@@ -6,10 +6,19 @@ from typing import Any
 
 import gradio as gr
 
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    load_dotenv = None
+
 from backend.artifacts import generate_podcast, generate_quiz, generate_report, list_artifacts
 from backend.chat import chat_with_notebook
 from backend.ingest import ingest_many_files, ingest_url
 from storage.notebook_store import NotebookStore
+
+if load_dotenv is not None:
+    # Local convenience: load .env automatically so API keys are available without shell export.
+    load_dotenv(override=False)
 
 
 DATA_ROOT = os.getenv("DATA_ROOT", "data")
@@ -166,7 +175,13 @@ def _artifact_rows(username: str, notebook_id: str | None) -> list[dict[str, str
     if not notebook_id:
         return []
     rows = list_artifacts(store, username, notebook_id)
-    return sorted(rows, key=lambda r: r["name"], reverse=True)
+    def _mtime(row: dict[str, str]) -> float:
+        try:
+            return Path(row["path"]).stat().st_mtime
+        except Exception:
+            return 0.0
+
+    return sorted(rows, key=_mtime, reverse=True)
 
 
 def _artifact_file_markdown(rows: list[dict[str, str]], kind: str) -> str:
@@ -189,6 +204,19 @@ def _first_report_preview(rows: list[dict[str, str]]) -> str:
     return text[:12000] if text else "## Report Preview\n\nReport is empty."
 
 
+def _first_quiz_preview(rows: list[dict[str, str]]) -> str:
+    quiz_paths = [r["path"] for r in rows if r["type"] == "quiz" and r["path"].endswith(".md")]
+    if not quiz_paths:
+        return "## Quiz Preview\n\nGenerate a quiz to see it here."
+
+    path = Path(quiz_paths[0])
+    if not path.exists():
+        return "## Quiz Preview\n\nQuiz file not found."
+
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return text[:12000] if text else "## Quiz Preview\n\nQuiz is empty."
+
+
 def _artifact_summary(rows: list[dict[str, str]]) -> str:
     if not rows:
         return "No artifacts yet."
@@ -204,17 +232,35 @@ def refresh_artifact_panel(notebook_id: str | None, request: gr.Request | None):
     quiz_files = _artifact_file_markdown(rows, "quiz")
     podcast_files = _artifact_file_markdown(rows, "podcast")
     report_preview = _first_report_preview(rows)
+    quiz_preview = _first_quiz_preview(rows)
 
     md_file = selected if selected and selected.lower().endswith(".md") else None
     audio_file = selected if selected and selected.lower().endswith(".mp3") else None
 
     return (
         gr.update(choices=choices, value=selected),
-        _artifact_summary(rows) if rows else "No artifacts yet for this notebook. Generate one first.",
+        gr.update(),
         report_files,
         quiz_files,
         podcast_files,
         report_preview,
+        quiz_preview,
+        md_file,
+        audio_file,
+    )
+
+
+def refresh_artifact_panel_keep_status(notebook_id: str | None, request: gr.Request | None):
+    dropdown, _status, report_files, quiz_files, podcast_files, report_preview, quiz_preview, md_file, audio_file = (
+        refresh_artifact_panel(notebook_id, request)
+    )
+    return (
+        dropdown,
+        report_files,
+        quiz_files,
+        podcast_files,
+        report_preview,
+        quiz_preview,
         md_file,
         audio_file,
     )
@@ -347,13 +393,19 @@ def select_artifact(path: str, notebook_id: str | None, request: gr.Request | No
     username = current_username(request)
     md_file = path if path and path.lower().endswith(".md") else None
     audio_file = path if path and path.lower().endswith(".mp3") else None
+    rows = _artifact_rows(username, notebook_id)
+    report_preview = _first_report_preview(rows)
+    quiz_preview = _first_quiz_preview(rows)
 
-    if md_file and md_file.lower().endswith(".md") and Path(md_file).exists():
-        preview = Path(md_file).read_text(encoding="utf-8", errors="ignore")[:12000]
-    else:
-        preview = _first_report_preview(_artifact_rows(username, notebook_id))
+    if md_file and Path(md_file).exists():
+        preview_text = Path(md_file).read_text(encoding="utf-8", errors="ignore")[:12000]
+        lower = md_file.lower()
+        if "/reports/" in lower:
+            report_preview = preview_text
+        elif "/quizzes/" in lower:
+            quiz_preview = preview_text
 
-    return md_file, audio_file, preview
+    return md_file, audio_file, report_preview, quiz_preview
 
 
 with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") as demo:
@@ -389,7 +441,10 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             with gr.Tabs(elem_id="main-tabs"):
                 with gr.Tab("Sources"):
                     with gr.Column(elem_classes=["card"]):
-                        file_input = gr.File(file_count="multiple", label="Upload files (.pdf, .pptx, .txt)")
+                        file_input = gr.File(
+                            file_count="multiple",
+                            label="Upload files (.pdf, .pptx, .txt, .csv, .xlsx)",
+                        )
                         ingest_files_btn = gr.Button("Ingest Files", elem_classes=["primary-btn"])
                         url_input = gr.Textbox(label="Web URL", placeholder="https://example.com/article")
                         ingest_url_btn = gr.Button("Ingest URL", elem_classes=["secondary-btn"])
@@ -438,6 +493,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
                         with gr.Tab("Quizzes"):
                             gen_quiz_btn = gr.Button("Generate Quiz", elem_classes=["primary-btn"])
                             quiz_files = gr.Markdown("_No files yet._", elem_classes=["card"])
+                            quiz_preview = gr.Markdown("## Quiz Preview\n\nGenerate a quiz to see it here.")
 
                         with gr.Tab("Podcasts"):
                             gen_podcast_btn = gr.Button("Generate Podcast", elem_classes=["primary-btn"])
@@ -464,6 +520,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -487,6 +544,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -512,6 +570,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -535,6 +594,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -573,15 +633,15 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
         inputs=[notebook_dropdown, artifact_prompt],
         outputs=[artifact_status],
     ).then(
-        refresh_artifact_panel,
+        refresh_artifact_panel_keep_status,
         inputs=[notebook_dropdown],
         outputs=[
             artifact_dropdown,
-            artifact_status,
             report_files,
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -592,15 +652,15 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
         inputs=[notebook_dropdown, artifact_prompt],
         outputs=[artifact_status],
     ).then(
-        refresh_artifact_panel,
+        refresh_artifact_panel_keep_status,
         inputs=[notebook_dropdown],
         outputs=[
             artifact_dropdown,
-            artifact_status,
             report_files,
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -611,15 +671,15 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
         inputs=[notebook_dropdown, artifact_prompt],
         outputs=[artifact_status],
     ).then(
-        refresh_artifact_panel,
+        refresh_artifact_panel_keep_status,
         inputs=[notebook_dropdown],
         outputs=[
             artifact_dropdown,
-            artifact_status,
             report_files,
             quiz_files,
             podcast_files,
             report_preview,
+            quiz_preview,
             artifact_md_file,
             artifact_audio,
         ],
@@ -628,7 +688,7 @@ with gr.Blocks(title="NotebookLM Clone", fill_height=True, elem_id="app-shell") 
     artifact_dropdown.change(
         select_artifact,
         inputs=[artifact_dropdown, notebook_dropdown],
-        outputs=[artifact_md_file, artifact_audio, report_preview],
+        outputs=[artifact_md_file, artifact_audio, report_preview, quiz_preview],
     )
 
 

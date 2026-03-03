@@ -72,7 +72,9 @@ Open the URL printed by Gradio.
 
 ## 3) Environment Variables
 
-- `OPENAI_API_KEY` (optional): enables higher quality generation for chat/artifacts.
+- `GROQ_API_KEY` (optional): enables higher quality generation for chat/artifacts via Groq.
+- `GROQ_MODEL` (optional): default is `llama-3.1-8b-instant`.
+- `OPENAI_API_KEY` (optional): enables higher quality generation for chat/artifacts via OpenAI.
 - `OPENAI_MODEL` (optional): default is `gpt-4o-mini`.
 - `ELEVENLABS_API_KEY` (optional): enables podcast audio generation via ElevenLabs Text-to-Dialogue.
 - `ELEVENLABS_VOICE_ID_A` (required for podcast audio): Host A voice ID.
@@ -82,13 +84,15 @@ Open the URL printed by Gradio.
 - `DATA_ROOT` (optional): default is `data`.
 - `DEMO_USER` (optional): default local username when OAuth user is unavailable.
 
-If no `OPENAI_API_KEY` is set, chat/artifact text generation still works in fallback mode.
-If ElevenLabs vars are not set, podcast transcript generation still works but MP3 audio is skipped.
+If neither `GROQ_API_KEY` nor `OPENAI_API_KEY` is set, chat/artifact text generation runs in fallback mode.
+If ElevenLabs vars are not set or fail, podcast transcript generation still works and MP3 may fall back to `gTTS`.
 
 ## 4) Hugging Face Space Setup
 
 1. Create a Gradio Space and connect this repo.
 2. In Space variables/secrets set:
+   - `GROQ_API_KEY` (Secret, optional but recommended)
+   - `GROQ_MODEL` (Variable, optional)
    - `OPENAI_API_KEY` (Secret, optional but recommended)
    - `OPENAI_MODEL` (Variable, optional)
 3. Enable Hugging Face OAuth for identity-aware per-user storage.
@@ -96,7 +100,7 @@ If ElevenLabs vars are not set, podcast transcript generation still works but MP
 
 ## 5) GitHub Actions Deployment to HF Space
 
-Workflow file: `.github/workflows/deploy-to-hf-space.yml`
+Workflow file: `.github/workflows/push_to_hf.yml`
 
 Configure these in GitHub:
 - Repository secret: `HF_TOKEN` (write token for Hugging Face)
@@ -113,7 +117,7 @@ Implemented now:
 - Chroma vector indexing and retrieval
 - Chat with citation display
 - Report/quiz generation and persistence
-- Podcast transcript generation + optional MP3 (via `gTTS`)
+- Podcast transcript generation + optional MP3 (ElevenLabs dialogue/TTS, then `gTTS` fallback)
 
 Recommended next upgrades:
 - Add source enable/disable toggles per chat request

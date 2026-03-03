@@ -66,6 +66,48 @@ def _citations(chunks: list[RetrievedChunk]) -> list[dict[str, Any]]:
     return out
 
 
+def _format_chat_answer(answer: str) -> str:
+    text = (answer or "").strip()
+    if not text:
+        return "### Quick Answer\n\nI could not generate an answer from the current context."
+
+    text = re.sub(r"\r\n?", "\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    has_headings = bool(re.search(r"(?m)^###\s+", text))
+    if has_headings:
+        # Keep model-provided sections, just normalize spacing.
+        text = re.sub(r"(?m)^(###\s+)", r"\n\1", text)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+
+    # Convert dense paragraph into readable sections.
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    if not sentences:
+        return f"### Quick Answer\n\n{text}"
+
+    quick = " ".join(sentences[:2]).strip()
+    key_points = sentences[2:6]
+
+    if not key_points:
+        # Fallback to clause-based bullets when we only got one long sentence.
+        clauses = [c.strip() for c in re.split(r";\s+|,\s+(?=[A-Z])", text) if c.strip()]
+        key_points = clauses[:4]
+
+    if key_points:
+        bullets = "\n".join([f"- {point}" for point in key_points])
+    else:
+        bullets = "- No additional details were available."
+
+    return (
+        "### Quick Answer\n\n"
+        f"{quick}\n\n"
+        "### Key Points\n\n"
+        f"{bullets}\n"
+    )
+
+
 def chat_with_notebook(
     store: NotebookStore,
     username: str,
@@ -76,6 +118,9 @@ def chat_with_notebook(
     paths = store.notebook_paths(username, notebook_id)
     retrieved_all = retrieve(paths.chroma, user_message, top_k=top_k)
     retrieved = [chunk for chunk in retrieved_all if chunk.score <= MAX_DISTANCE]
+    # If threshold is too strict for this corpus/query, keep best available chunks instead of empty context.
+    if not retrieved and retrieved_all:
+        retrieved = retrieved_all[: min(2, len(retrieved_all))]
 
     context = _format_context(retrieved)
     prompt = (
@@ -91,6 +136,7 @@ def chat_with_notebook(
         "5) End with a short 'Sources used' line listing source names."
     )
     answer = generate_text(prompt, SYSTEM_PROMPT, fallback_text=_fallback_answer(user_message, retrieved))
+    answer = _format_chat_answer(answer)
 
     citation_rows = _citations(retrieved)
     store.save_message(username, notebook_id, "user", user_message)
